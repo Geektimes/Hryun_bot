@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import os
 from colorama import init, Fore, Style
 
-from LLM import Qwen, LLM
+from LLM import LLM
 from save_message import save_message
 
 
@@ -25,7 +25,7 @@ GREETING = os.getenv('GREETING')
 # session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
 # bot = Bot(TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
 bot = Bot(TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(unfiltered=True)
 
 if bot:
     llm = LLM()
@@ -35,6 +35,7 @@ if bot:
 async def cmd_start(message: types.Message):
     await message.answer(GREETING, parse_mode='HTML')
 
+
 # Обработчик сообщений
 @dp.message()
 async def filter_messages(message: Message):
@@ -42,10 +43,10 @@ async def filter_messages(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or "Без имени"
     text = message.text
+    chat_title = message.chat.title if message.chat.title else "Личный чат"
 
     # Сохраняем сообщение в базу
-    await save_message(chat_id, user_id, username, text)
-
+    await save_message(chat_id, chat_title, user_id, username, text)
 
     if message.text:
         logging.info(
@@ -59,14 +60,7 @@ async def filter_messages(message: Message):
         # logging.info(f"Начинается с 'хрюш': {message.text.strip().lower().startswith('хрюш')}")
 
         if message.text.strip().lower().startswith('отчет'):
-            chat_id = message.chat.id
-            messages = bot.history(chat_id, limit=100)
-            last_messages = await get_last_messages(chat_id)
-
-            logging.info(f"\n\n\n\nПоследние {Fore.WHITE}{len(last_messages)} сообщений из чата {Fore.WHITE}{chat_id}:")
-            for msg in last_messages:
-                logging.info(f"{msg.date} - {msg.from_user.username or msg.from_user.id}: {Fore.WHITE}{msg.text}")
-            return None
+            pass
 
         elif message.text.strip().lower().startswith('хрюш'):
             role = 'assistant'
@@ -81,6 +75,9 @@ async def filter_messages(message: Message):
 
         bot_text = llm.ask(message.text, role=role)
         await message.answer(bot_text)
+        # Сохраняем ответ бота в БД
+        # (tg_chat_id: int, chat_title: int, tg_user_id: int, username: str, text: str)
+        await save_message(chat_id, chat_title, 0, "Хрюн Моржов", bot_text)
     else:
         logging.info(f"Сообщение в чате {message.chat.id} от {message.from_user.id}: [Нет текста]")
 
