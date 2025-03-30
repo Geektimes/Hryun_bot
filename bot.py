@@ -12,7 +12,7 @@ import os
 from colorama import init, Fore, Style
 
 from LLM import LLM
-from summary import get_summary
+from history_listing import get_history_listing
 from save_message import save_message
 import yaml
 
@@ -49,14 +49,19 @@ async def filter_messages(message: Message):
     tg_chat_id = message.chat.id
     tg_user_id = message.from_user.id
     tg_username = message.from_user.username or "Без имени"
-    text = message.text
     chat_title = message.chat.title if message.chat.title else "Личный чат"
+    tg_message_id = message.message_id
 
-    # Сохраняем сообщение в базу
-    # (tg_chat_id: int, chat_title: int, tg_user_id: int, username: str, text: str)
-    await save_message(tg_chat_id, chat_title, tg_user_id, tg_username, text)
+    reply_to_tg_message_id = None
+
+    if message.reply_to_message:
+        reply_to_tg_message_id = message.reply_to_message.message_id
+        logging.info(
+            f"\nСообщение REPLAY {reply_to_tg_message_id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
 
     if message.text:
+        # Сохраняем сообщение в базу
+        await save_message(tg_chat_id, chat_title, tg_user_id, tg_username, text=message.text, tg_message_id=tg_message_id, reply_to_tg_message_id=reply_to_tg_message_id)
         logging.info(
             f"Сообщение в чате {message.chat.id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
 
@@ -74,10 +79,10 @@ async def filter_messages(message: Message):
                 limit = int(match.group(1))  # Извлекаем число из команды
 
             # def get_summary(tg_chat_id: int, limit: int = 100)
-            summary = get_summary(tg_chat_id, limit=limit)
+            history_listing = get_history_listing(tg_chat_id, limit=limit)
 
-            logging.info(f"Отчет для чата {tg_chat_id}:\n{summary}")
-            bot_text = llm.ask(summary, role='summary')
+            logging.info(f"Отчет для чата {tg_chat_id}:\n{history_listing}")
+            bot_text = llm.ask(history_listing, role='summary')
             await message.answer(bot_text)
 
         elif message.text.strip().lower().startswith('хрюш'):
@@ -94,8 +99,7 @@ async def filter_messages(message: Message):
             return None
 
         # Сохраняем ответ бота в БД
-        # (tg_chat_id: int, chat_title: int, tg_user_id: int, username: str, text: str)
-        await save_message(tg_chat_id, chat_title, 0, "Хрюн Моржов", bot_text)
+        await save_message(tg_chat_id, chat_title, 0, "Хрюн Моржов", bot_text, tg_message_id=tg_message_id)
     else:
         logging.info(f"Сообщение в чате {message.chat.id} от {message.from_user.id}: [Нет текста]")
 

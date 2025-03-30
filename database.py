@@ -25,14 +25,19 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    tg_message_id = Column(Integer, nullable=False)
     chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
+    # Новое поле для хранения ссылки на реплай
+    reply_to_tg_message_id = Column(Integer, ForeignKey("chat_messages.tg_message_id"), nullable=True)
+
     # Связи
     chat = relationship("Chat", back_populates="messages")
     user = relationship("User", back_populates="messages")
+    reply_to_message = relationship("ChatMessage", remote_side=[tg_message_id], backref="replies")  # Связь с самим собой
 
 
 # Модель пользователей
