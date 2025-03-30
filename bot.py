@@ -10,11 +10,12 @@ from aiogram.types import Message
 from dotenv import load_dotenv
 import os
 from colorama import init, Fore, Style
+import yaml
 
-from LLM import LLM
+from LLM import LLM, requests_limit
 from history_listing import get_history_listing
 from save_message import save_message
-import yaml
+
 
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
@@ -26,8 +27,8 @@ init(autoreset=True)  # autoreset=True автоматически сбрасыв
 logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
-TOKEN = os.getenv('BOT2_TOKEN')
-BOT_USERNAME = os.getenv('BOT2_USERNAME')
+TOKEN = os.getenv('BOT_TOKEN')
+BOT_USERNAME = os.getenv('BOT_USERNAME')
 
 # session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
 # bot = Bot(TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
@@ -43,6 +44,11 @@ async def cmd_start(message: types.Message):
     await message.answer(GREETING, parse_mode='HTML')
 
 
+
+def reduction_requests_limit():
+    global requests_limit
+    requests_limit -= 1
+
 # Обработчик сообщений
 @dp.message()
 async def filter_messages(message: Message):
@@ -51,13 +57,10 @@ async def filter_messages(message: Message):
     tg_username = message.from_user.username or "Без имени"
     chat_title = message.chat.title if message.chat.title else "Личный чат"
     tg_message_id = message.message_id
-
     reply_to_tg_message_id = None
 
     if message.reply_to_message:
         reply_to_tg_message_id = message.reply_to_message.message_id
-        logging.info(
-            f"\nСообщение REPLAY {reply_to_tg_message_id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
 
     if message.text:
         # Сохраняем сообщение в базу
@@ -72,7 +75,22 @@ async def filter_messages(message: Message):
         # logging.info(f"Начинается с 'хрю': {message.text.strip().lower().startswith('хрю')}")
         # logging.info(f"Начинается с 'хрюш': {message.text.strip().lower().startswith('хрюш')}")
 
-        if message.text.strip().lower().startswith('отчет'):
+        # Если это личный чат, отвечаем сразу без условий
+        if message.chat.type == "private":
+            if message.text.strip().lower().startswith('хрюш'):
+                bot_text = llm.ask(message.text, role='assistant')
+                await message.answer(bot_text)
+            else:
+                bot_text = llm.ask(message.text, role='hryn')
+                if bot_text:  # Если ответ получен
+                    reduction_requests_limit()
+                    await message.answer(bot_text)
+
+            # Сохраняем ответ бота
+            await save_message(tg_chat_id, chat_title, 0, "Хрюн Моржов", bot_text, tg_message_id=tg_message_id)
+            return
+
+        elif message.text.strip().lower().startswith('отчет'):
             match = re.match(r'^отчет\s+(\d+)$', message.text.strip().lower())
             limit = 100  # Значение по умолчанию
             if match:
@@ -83,18 +101,24 @@ async def filter_messages(message: Message):
 
             logging.info(f"Отчет для чата {tg_chat_id}:\n{history_listing}")
             bot_text = llm.ask(history_listing, role='summary')
-            await message.answer(bot_text)
+            if bot_text:  # Если ответ получен
+                reduction_requests_limit()
+                await message.answer(bot_text)
 
         elif message.text.strip().lower().startswith('хрюш'):
             bot_text = llm.ask(message.text, role='assistant')
-            await message.answer(bot_text)
+            if bot_text:  # Если ответ получен
+                reduction_requests_limit()
+                await message.answer(bot_text)
 
         elif (BOT_USERNAME in message.text or
                 (message.reply_to_message and
                  message.reply_to_message.from_user.id == bot.id) or
                 message.text.strip().lower().startswith('хрю')):
             bot_text = llm.ask(message.text, role='hryn')
-            await message.answer(bot_text)
+            if bot_text:  # Если ответ получен
+                reduction_requests_limit()
+                await message.answer(bot_text)
         else:
             return None
 

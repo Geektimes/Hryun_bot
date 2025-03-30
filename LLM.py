@@ -5,6 +5,8 @@ import logging
 import time
 import yaml
 
+requests_limit = 199
+
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
@@ -22,6 +24,7 @@ class LLM:
     self.API_URL = os.getenv('API_URL')
     self.model = os.getenv('MODEL_GEMINI_PRO_2_5')
     self.model_qwen = os.getenv('MODEL_QWEN_2_5')
+    self.model_deepseek = os.getenv('MODEL_DEEPSEEK_V3')
 
   def make_client(self):
     return OpenAI(
@@ -31,6 +34,7 @@ class LLM:
 
   @staticmethod
   def get_messages(role, msg):
+    # logger.info(f"\nrequests_limit к OpenAI.: {requests_limit}\n")
     if role == 'hryn':
       messages = [
         {"role": "system", "content": hryun_promt},
@@ -58,7 +62,7 @@ class LLM:
       "X-Title": "<YOUR_SITE_NAME>",
     }
 
-    models = [self.model, self.model_qwen]  # Последовательность моделей
+    models = [self.model, self.model_deepseek, self.model_qwen]  # Последовательность моделей
     max_retries = 3
 
     for model in models:
@@ -72,11 +76,13 @@ class LLM:
           )
           response = completion.choices[0].message.content
           logger.info(f"Ответ от OpenAI ({model}): {response}")
+          if response and model == models[1]:
+            return f"Тупой ответ:\n{response}"
           return response  # Успех, возвращаем ответ
         except Exception as e:
           logger.error(f"Ошибка при запросе к {model} (попытка {attempt}): {e}", exc_info=True)
           if attempt < max_retries:
-            time.sleep(5)
+            time.sleep(11)
 
     return "Мозги не работают, спроси позже"  # Если все попытки провалились
 
