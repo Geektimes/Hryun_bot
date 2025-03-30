@@ -1,5 +1,4 @@
 # LLM.py
-
 import os
 from openai import OpenAI
 import logging
@@ -11,7 +10,6 @@ with open("config.yaml", "r", encoding="utf-8") as f:
 
 summary_prompt = config["SUMMARY_PROMPT"]
 hryun_promt = config["HRYUN_PROMPT"]
-
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -52,11 +50,9 @@ class LLM:
     return messages
 
   def ask(self, msg, role='hryn'):
-    logger.info(f"Отправка запроса к OpenAI. Текст: {msg}, Роль: {role}")
+    # logger.info(f"Отправка запроса к OpenAI. Текст: {msg}, Роль: {role}")
     client = self.make_client()
-
     messages = LLM.get_messages(role, msg)
-
     headers = {
       "HTTP-Referer": "<YOUR_SITE_URL>",
       "X-Title": "<YOUR_SITE_NAME>",

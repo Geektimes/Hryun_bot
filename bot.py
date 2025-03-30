@@ -1,5 +1,5 @@
 # bot.py
-
+import re
 import asyncio
 import logging
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -68,15 +68,22 @@ async def filter_messages(message: Message):
         # logging.info(f"Начинается с 'хрюш': {message.text.strip().lower().startswith('хрюш')}")
 
         if message.text.strip().lower().startswith('отчет'):
-            # def get_summary(tg_chat_id: int, limit: int = 100)
-            summary = get_summary(tg_chat_id)
-            logging.info(f"Отчет для чата {tg_chat_id}:\n{summary}")
+            match = re.match(r'^отчет\s+(\d+)$', message.text.strip().lower())
+            limit = 100  # Значение по умолчанию
+            if match:
+                limit = int(match.group(1))  # Извлекаем число из команды
 
+            # def get_summary(tg_chat_id: int, limit: int = 100)
+            summary = get_summary(tg_chat_id, limit=limit)
+
+            logging.info(f"Отчет для чата {tg_chat_id}:\n{summary}")
             bot_text = llm.ask(summary, role='summary')
             await message.answer(bot_text)
+
         elif message.text.strip().lower().startswith('хрюш'):
             bot_text = llm.ask(message.text, role='assistant')
             await message.answer(bot_text)
+
         elif (BOT_USERNAME in message.text or
                 (message.reply_to_message and
                  message.reply_to_message.from_user.id == bot.id) or

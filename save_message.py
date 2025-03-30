@@ -1,5 +1,4 @@
 # save_message.py
-
 from database import get_db, ChatMessage, User, Chat
 from sqlalchemy.orm.exc import NoResultFound
 
