@@ -1,3 +1,5 @@
+# bot.py
+
 import asyncio
 import logging
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -10,8 +12,14 @@ import os
 from colorama import init, Fore, Style
 
 from LLM import LLM
+from summary import get_summary
 from save_message import save_message
+import yaml
 
+with open("config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+
+GREETING = config["GREETING"]
 
 # Инициализация colorama
 init(autoreset=True)  # autoreset=True автоматически сбрасывает цвет после каждого вывода
@@ -20,7 +28,6 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 TOKEN = os.getenv('BOT2_TOKEN')
 BOT_USERNAME = os.getenv('BOT2_USERNAME')
-GREETING = os.getenv('GREETING')
 
 # session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
 # bot = Bot(TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
@@ -39,14 +46,15 @@ async def cmd_start(message: types.Message):
 # Обработчик сообщений
 @dp.message()
 async def filter_messages(message: Message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    username = message.from_user.username or "Без имени"
+    tg_chat_id = message.chat.id
+    tg_user_id = message.from_user.id
+    tg_username = message.from_user.username or "Без имени"
     text = message.text
     chat_title = message.chat.title if message.chat.title else "Личный чат"
 
     # Сохраняем сообщение в базу
-    await save_message(chat_id, chat_title, user_id, username, text)
+    # (tg_chat_id: int, chat_title: int, tg_user_id: int, username: str, text: str)
+    await save_message(tg_chat_id, chat_title, tg_user_id, tg_username, text)
 
     if message.text:
         logging.info(
@@ -60,24 +68,27 @@ async def filter_messages(message: Message):
         # logging.info(f"Начинается с 'хрюш': {message.text.strip().lower().startswith('хрюш')}")
 
         if message.text.strip().lower().startswith('отчет'):
-            pass
+            # def get_summary(tg_chat_id: int, limit: int = 100)
+            summary = get_summary(tg_chat_id)
+            logging.info(f"Отчет для чата {tg_chat_id}:\n{summary}")
 
+            bot_text = llm.ask(summary, role='summary')
+            await message.answer(bot_text)
         elif message.text.strip().lower().startswith('хрюш'):
-            role = 'assistant'
-
+            bot_text = llm.ask(message.text, role='assistant')
+            await message.answer(bot_text)
         elif (BOT_USERNAME in message.text or
                 (message.reply_to_message and
                  message.reply_to_message.from_user.id == bot.id) or
                 message.text.strip().lower().startswith('хрю')):
-            role = 'hryn'
+            bot_text = llm.ask(message.text, role='hryn')
+            await message.answer(bot_text)
         else:
-            return
+            return None
 
-        bot_text = llm.ask(message.text, role=role)
-        await message.answer(bot_text)
         # Сохраняем ответ бота в БД
         # (tg_chat_id: int, chat_title: int, tg_user_id: int, username: str, text: str)
-        await save_message(chat_id, chat_title, 0, "Хрюн Моржов", bot_text)
+        await save_message(tg_chat_id, chat_title, 0, "Хрюн Моржов", bot_text)
     else:
         logging.info(f"Сообщение в чате {message.chat.id} от {message.from_user.id}: [Нет текста]")
 

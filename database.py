@@ -1,7 +1,7 @@
 # database.py
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Table
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 
 # Создаем подключение к SQLite
@@ -11,8 +11,13 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
 
-from sqlalchemy import ForeignKey
-from sqlalchemy.orm import relationship
+# Промежуточная таблица для связи многие-ко-многим между пользователями и чатами
+user_chat_association = Table(
+    "user_chat_association",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("chat_id", Integer, ForeignKey("chats.id"), primary_key=True),
+)
 
 
 # Модель таблицы сообщений
@@ -20,30 +25,31 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    chat_id = Column(Integer, ForeignKey('chats.id'), nullable=False)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     text = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     # Связи
-    chat = relationship("Chats", back_populates="messages")
-    user = relationship("Users", back_populates="messages")
+    chat = relationship("Chat", back_populates="messages")
+    user = relationship("User", back_populates="messages")
 
 
-class Users(Base):
+# Модель пользователей
+class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, nullable=True)
     tg_user_id = Column(Integer, nullable=True)
-    chats_id = Column(Integer, ForeignKey('chats.id'), nullable=False)
 
     # Связи
-    chats = relationship("Chats", back_populates="user")
+    chats = relationship("Chat", secondary=user_chat_association, back_populates="users")
     messages = relationship("ChatMessage", back_populates="user")
 
 
-class Chats(Base):
+# Модель чатов
+class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -51,8 +57,9 @@ class Chats(Base):
     title = Column(String, nullable=True)
 
     # Связи
-    user = relationship("Users", back_populates="chats")
+    users = relationship("User", secondary=user_chat_association, back_populates="chats")
     messages = relationship("ChatMessage", back_populates="chat")
+
 
 # Создаем таблицы в базе данных
 def init_db():

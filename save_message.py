@@ -1,6 +1,6 @@
 # save_message.py
 
-from database import get_db, ChatMessage, Users, Chats
+from database import get_db, ChatMessage, User, Chat
 from sqlalchemy.orm.exc import NoResultFound
 
 
@@ -8,9 +8,9 @@ async def save_message(tg_chat_id: int, chat_title: str, tg_user_id: int, userna
     db = next(get_db())
     try:
         # Проверяем, существует ли чат в БД
-        chat = db.query(Chats).filter(Chats.tg_chat_id == tg_chat_id).first()
+        chat = db.query(Chat).filter(Chat.tg_chat_id == tg_chat_id).first()
         if not chat:
-            chat = Chats(
+            chat = Chat(
                 tg_chat_id=tg_chat_id,
                 title=chat_title  # Можно задать любое default название
             )
@@ -18,13 +18,14 @@ async def save_message(tg_chat_id: int, chat_title: str, tg_user_id: int, userna
             db.flush()
 
         # Проверяем, существует ли пользователь в БД
-        user = db.query(Users).filter(Users.tg_user_id == tg_user_id).first()
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
         if not user:
-            user = Users(
+            user = User(
                 tg_user_id=tg_user_id,
-                chats_id=chat.id,
                 username=username
             )
+            user.chats.append(chat)  # Добавляем чат в связь many-to-many
+
             db.add(user)
             db.flush()  # Чтобы получить ID нового пользователя
 
