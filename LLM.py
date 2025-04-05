@@ -22,9 +22,11 @@ class LLM:
   def __init__(self):
     self.API_KEY = os.getenv('API_KEY')
     self.API_URL = os.getenv('API_URL')
-    self.model = os.getenv('MODEL_GEMINI_PRO_2_5')
+    self.model_gemini_pro_2_5 = os.getenv('MODEL_GEMINI_PRO_2_5')
     self.model_qwen = os.getenv('MODEL_QWEN_2_5')
     self.model_deepseek = os.getenv('MODEL_DEEPSEEK_V3')
+    self.model_gemma = os.getenv('MODEL_GEMMA_3_27B')
+    self.model_mistral = os.getenv('MODEL_MISTRAL_SMALL_3_1')
 
   def make_client(self):
     return OpenAI(
@@ -38,49 +40,65 @@ class LLM:
     if role == 'hryn':
       messages = [
         {"role": "system", "content": hryun_promt},
-        {"role": "user", "content": [{"type": "text", "text": msg}]}
+        {"role": "user", "content": msg}
       ]
     elif role == 'summary':
       # print(f"\n\nROLE:: {role}\n PROMT:: {summary_prompt}\n CONTENT:: {msg}")
       messages = [
         {"role": "system", "content": summary_prompt},
-        {"role": "user", "content": [{"type": "text", "text": msg}]}
+        {"role": "user", "content": msg}
       ]
     else:
       messages = [
         {"role": "system", "content": "a smart helpful assistant"},
-        {"role": "user", "content": [{"type": "text", "text": msg}]}
+        {"role": "user", "content": msg}
       ]
     return messages
 
-  def ask(self, msg, role='hryn'):
+  def ask(self, msg, role='hryn', history=None):
     # logger.info(f"Отправка запроса к OpenAI. Текст: {msg}, Роль: {role}")
     client = self.make_client()
-    messages = LLM.get_messages(role, msg)
+
+    new_message = LLM.get_messages(role, msg)
+
+    # Формируем список сообщений с историей
+    messages = history if history else []  # Берём историю, если есть
+
+    # Добавляем текущее сообщение в контекст
+    messages.extend(new_message)
+
     headers = {
       "HTTP-Referer": "<YOUR_SITE_URL>",
       "X-Title": "<YOUR_SITE_NAME>",
     }
 
-    models = [self.model, self.model_deepseek, self.model_qwen]  # Последовательность моделей
+    models = [self.model_gemini_pro_2_5, self.model_gemma]
+    # models = [self.model_gemini_pro_2_5]
+    # models = [self.model_gemma]
+    # models = [self.model_mistral]
+    # models = [self.model_deepseek]
+    # models = [self.model_qwen]
     max_retries = 3
 
     for model in models:
       for attempt in range(1, max_retries + 1):
         try:
+          logger.info(f"\nСообщения, отправляемые в запрос: {messages}\n")
+
           completion = client.chat.completions.create(
             extra_headers=headers,
             extra_body={},
             model=model,
             messages=messages
           )
+          logger.info(f"Ответ от OpenAI ({model}): {completion}")
+
           response = completion.choices[0].message.content
-          logger.info(f"Ответ от OpenAI ({model}): {response}")
-          if response and model == models[1]:
-            return f"Тупой ответ:\n{response}"
-          return response  # Успех, возвращаем ответ
+
+          if response:
+            return response
         except Exception as e:
-          logger.error(f"Ошибка при запросе к {model} (попытка {attempt}): {e}", exc_info=True)
+          logger.error(f"Ошибка при запросе к {model} (попытка {attempt}): {e}", exc_info=False)
           if attempt < max_retries:
             time.sleep(11)
 
