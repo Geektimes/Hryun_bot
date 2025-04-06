@@ -64,8 +64,8 @@ def convert_txt_to_yaml(input_file, output_file):
 
 
 def main():
-    input_file = "anekdots.txt"
-    output_file = "anekdots.yaml"
+    input_file = "../anekdots.txt"
+    output_file = "../anekdots.yaml"
     convert_txt_to_yaml(input_file, output_file)
 
 

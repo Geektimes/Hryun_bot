@@ -1,14 +1,14 @@
-# LLM.py
+# AI.py
 import os
 from openai import OpenAI
 import logging
 import time
 import yaml
 
-requests_limit = 199
+from config import config
 
-with open("config.yaml", "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
+
+requests_limit = 199
 
 summary_prompt = config["SUMMARY_PROMPT"]
 hryun_promt = config["HRYUN_PROMPT"]
@@ -55,26 +55,26 @@ class LLM:
       ]
     return messages
 
-  def ask(self, msg, role='hryn', history=None):
+  def ask(self, msg, role='hryn', context=None):
     # logger.info(f"Отправка запроса к OpenAI. Текст: {msg}, Роль: {role}")
     client = self.make_client()
 
     new_message = LLM.get_messages(role, msg)
 
     # Формируем список сообщений с историей
-    messages = history if history else []  # Берём историю, если есть
+    messages = context if context else []  # Берём историю, если есть
 
     # Добавляем текущее сообщение в контекст
     messages.extend(new_message)
-
+    # print(f"\nMESSAGA:: {messages}\n")
     headers = {
       "HTTP-Referer": "<YOUR_SITE_URL>",
       "X-Title": "<YOUR_SITE_NAME>",
     }
 
-    models = [self.model_gemini_pro_2_5, self.model_gemma]
+    # models = [self.model_gemini_pro_2_5, self.model_gemma]
     # models = [self.model_gemini_pro_2_5]
-    # models = [self.model_gemma]
+    models = [self.model_gemma]
     # models = [self.model_mistral]
     # models = [self.model_deepseek]
     # models = [self.model_qwen]

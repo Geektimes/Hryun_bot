@@ -1,0 +1,856 @@
+--- D:\Projects\Hryun_bot\bot.py ---
+#bot.py
+import asyncio
+from aiogram import Bot, Dispatcher
+from handlers import register_handlers
+
+# from config import config, GREETING, BOT_USERNAME, TOKEN
+from config import load_config
+from database import init_db
+from middlewares.db import DBSessionMiddleware
+
+
+config = load_config()
+
+# session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
+# bot = Bot(TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
+bot = Bot(config.TOKEN)
+dp = Dispatcher(unfiltered=True)
+
+
+async def main():
+    await init_db()
+    dp.update.middleware(DBSessionMiddleware())
+    register_handlers(dp)
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\config.py ---
+#config.py
+import os
+from dataclasses import dataclass
+import yaml
+from dotenv import load_dotenv
+
+root_path = "D:\\Projects\\Hryun_bot"
+file_name = "config.yaml"
+file_path = os.path.join(root_path, file_name)
+
+with open(file_path, "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+
+load_dotenv()
+
+@dataclass
+class Config:
+    TOKEN: str = os.getenv('BOT_TOKEN')
+    DB_NAME = os.getenv('DB_NAME')
+    ROOT_PATH = os.getenv('ROOT_PATH')
+    DB_FILE_PATH = os.path.join(ROOT_PATH, DB_NAME)
+    BOT_USERNAME: str = os.getenv('BOT_USERNAME')
+    BOT_NAME: str = "Хрюн",
+    BOT_LAST_NAME: str = "Моржов"
+    BOT_TG_ID: int = 7858823954
+    GREETING: str = config["GREETING"]
+    source_path: str = os.path.join(ROOT_PATH, "source")
+    ANEKDOTS_FILE: str = os.path.join(ROOT_PATH, "source", "anekdots.yaml")
+
+
+def load_config():
+    return Config()
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\database.py ---
+# database.py
+import os
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Boolean
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from datetime import datetime
+from contextlib import asynccontextmanager
+
+from config import load_config
+
+config = load_config()
+
+# Создаем подключение к SQLite
+file_path = config.DB_FILE_PATH
+DATABASE_URL = f"sqlite+aiosqlite:///{file_path}"
+
+# Создаем таблицы в базе данных
+async def init_db():
+    if not os.path.exists(file_path):
+        print(f"База данных {file_path} не найдена. Создаем новую...")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("База данных успешно создана.")
+    else:
+        print(f"База данных {file_path} уже существует.")
+
+
+# Асинхронный контекстный менеджер для сессий
+@asynccontextmanager
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+Base = declarative_base()
+
+# Промежуточная таблица для связи многие-ко-многим между пользователями и чатами
+user_chat_association = Table(
+    "user_chat_association",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("chat_id", Integer, ForeignKey("chats.id"), primary_key=True),
+)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg_message_id = Column(Integer, nullable=False)
+    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    content = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    reply_to_tg_message_id = Column(Integer, ForeignKey("messages.tg_message_id"), nullable=True)
+    bot_addressed = Column(Boolean, default=False, nullable=False)
+    type = Column(String, nullable=False)
+
+    # Связи
+    chat = relationship("Chat", back_populates="messages")
+    user = relationship("User", back_populates="messages")
+    reply_to_message = relationship("Message", remote_side=[tg_message_id], backref="replies")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg_username = Column(String, nullable=True)
+    tg_first_name = Column(String, nullable=False)
+    tg_last_name = Column(String, nullable=True)
+    tg_user_id = Column(Integer, nullable=True)
+    is_bot = Column(Boolean, default=False, nullable=False)
+
+    # Связи
+    chats = relationship("Chat", secondary=user_chat_association, back_populates="users")
+    messages = relationship("Message", back_populates="user")
+
+
+# Модель чатов
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg_chat_id = Column(Integer, nullable=True)
+    title = Column(String, nullable=True)
+
+    # Связи
+    users = relationship("User", secondary=user_chat_association, back_populates="chats")
+    messages = relationship("Message", back_populates="chat")
+
+
+class UsedAnekdot(Base):
+    __tablename__ = "used_anekdots"
+    anekdot_key = Column(String, primary_key=True, index=True)
+
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\README.md ---
+# Hryun_bot
+бот с ИИ "Хрюн Моржов"
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\handlers\basic_handlers.py ---
+# handlers\basic_handlers.py
+import re
+import logging
+from aiogram import Router, types, F
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message
+from sqlalchemy.orm import Session
+
+from colorama import init, Fore
+
+from utils.services import save_message, get_anekdot
+from utils.history_listing import get_history_listing
+from config import load_config
+from utils.AI import LLM
+from database import User, Chat, Message, get_db
+from utils.message_thread import get_message_thread
+
+config = load_config()
+
+llm = LLM()
+
+router = Router()
+
+# Инициализация colorama
+init(autoreset=True)  # autoreset=True автоматически сбрасывает цвет после каждого вывода
+logging.basicConfig(level=logging.INFO)
+
+@router.message(CommandStart())
+async def start_handler(message: types.Message, db: Session):
+    # Сохраняем пользователя
+    user = db.query(User).filter_by(tg_user_id=message.from_user.id).first()
+    if not user:
+        user = User(
+            tg_user_id=message.from_user.id,
+            tg_username=message.from_user.username,
+            tg_first_name=message.from_user.first_name,
+            tg_last_name=message.from_user.last_name,
+            is_bot=message.from_user.is_bot
+        )
+        db.add(user)
+        db.commit()
+
+    await message.answer(config.GREETING, parse_mode='HTML')
+
+
+@router.message(Command("help"))
+async def help_handler(message: types.Message):
+    await message.answer("Доступные команды:\n/start — начать\n/help — помощь")
+
+
+@router.message(lambda msg: msg.text and msg.text.strip().lower() == "хрюн анекдот")
+async def anekdot_handler(message: Message):
+    # Сохраняем сообщение пользователя в базу
+    await save_message(message, bot_addressed=True)
+    anekdot = await get_anekdot()
+    if anekdot:  # Если ответ получен
+        bot_message = await message.answer(anekdot)
+        await save_message(bot_message, bot_addressed=True)
+
+
+# 1. Ответ в личке
+@router.message(F.chat.type == "private", F.text)
+async def private_chat_handler(message: Message):
+    logging.info(f"Сообщение в личке {message.chat.id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
+    await save_message(message, bot_addressed=True)
+    role = 'assistant' if message.text.lower().startswith('хрюш') else 'hryn'
+    bot_text = llm.ask(message.text, role=role)
+    if bot_text:
+        bot_message = await message.answer(bot_text)
+        await save_message(bot_message, bot_addressed=True)
+
+
+# Обработка "отчет N"
+@router.message(lambda msg: msg.text and msg.text.lower().startswith("отчет"))
+async def report_handler(message: Message):
+    match = re.match(r'^отчет\s+(\d+)$', message.text.lower())
+    limit = int(match.group(1)) if match else 100
+    history_listing = await get_history_listing(message.chat.id, limit=limit)
+
+    logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
+    bot_text = llm.ask(history_listing, role='summary')
+    if bot_text:
+        await message.answer(bot_text)
+
+
+# Обработка "хрюша ..."
+@router.message(lambda msg: msg.text and msg.text.lower().startswith("хрюша"))
+async def assistant_handler(message: Message):
+    logging.info(f"Сообщение в группе для 'хрюша' {message.chat.id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
+    await save_message(message, bot_addressed=True)
+    bot_text = llm.ask(message.text, role="assistant")
+    if bot_text:
+        bot_message = await message.answer(bot_text, reply_to_message_id=message.message_id)
+        await save_message(bot_message, bot_addressed=True)
+
+
+# Обработка упоминания бота или "хрюн ..."
+@router.message(lambda msg: msg.text and (
+    (msg.reply_to_message and msg.reply_to_message.from_user.is_bot)  # Ответ на сообщение бота
+    or msg.text.lower().startswith("хрюн")
+))
+async def mention_handler(message: Message):
+    logging.info(
+        f"Сообщение в группе для 'хрюн' {message.chat.id} от {message.from_user.id}: {Fore.WHITE}{message.text}")
+
+
+    async with get_db() as db:
+        context = await get_message_thread(db=db, tg_user_id=message.from_user.id, tg_chat_id=message.chat.id)
+
+    await save_message(message, bot_addressed=True)
+
+    bot_text = llm.ask(message.text, role='hryn', context=context)
+    if bot_text:
+        bot_message = await message.answer(bot_text, reply_to_message_id=message.message_id)
+        await save_message(bot_message, bot_addressed=True)
+
+
+@router.message()
+async def unknown_message_handler(message: Message):
+    msg_type = "I dont know"
+
+    if message.text:
+        msg_type = "text"
+    elif message.sticker:
+        msg_type = "sticker"
+    elif message.photo:
+        msg_type = "photo"
+    elif message.video:
+        msg_type = "video"
+    elif message.voice:
+        msg_type = "voice"
+    elif message.audio:
+        msg_type = "audio"
+    elif message.document:
+        msg_type = "document"
+    elif message.contact:
+        msg_type = "contact"
+    elif message.location:
+        msg_type = "location"
+    elif message.animation:
+        msg_type = "animation"
+    elif message.video_note:
+        msg_type = "video_note"
+    elif message.dice:
+        msg_type = "dice"
+    elif message.poll:
+        msg_type = "poll"
+    else:
+        msg_type = "unknown"
+
+    logging.info(f"Получено сообщение типа: {msg_type}")
+    await save_message(message, type=msg_type)
+
+
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\handlers\__init__.py ---
+#handlers\__init__.py
+from aiogram import Dispatcher
+from . import basic_handlers
+
+def register_handlers(dp: Dispatcher):
+    dp.include_router(basic_handlers.router)
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\middlewares\db.py ---
+# \middlewares\db.py
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject
+from typing import Callable, Dict, Any, Awaitable
+from database import get_db
+
+class DBSessionMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        async with get_db() as db:
+            data["db"] = db
+            return await handler(event, data)
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\middlewares\__init__.py ---
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\utils\AI.py ---
+# AI.py
+import os
+from openai import OpenAI
+import logging
+import time
+import yaml
+
+from config import config
+
+
+requests_limit = 199
+
+summary_prompt = config["SUMMARY_PROMPT"]
+hryun_promt = config["HRYUN_PROMPT"]
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+logger = logging.getLogger(__name__)
+
+
+class LLM:
+  def __init__(self):
+    self.API_KEY = os.getenv('API_KEY')
+    self.API_URL = os.getenv('API_URL')
+    self.model_gemini_pro_2_5 = os.getenv('MODEL_GEMINI_PRO_2_5')
+    self.model_qwen = os.getenv('MODEL_QWEN_2_5')
+    self.model_deepseek = os.getenv('MODEL_DEEPSEEK_V3')
+    self.model_gemma = os.getenv('MODEL_GEMMA_3_27B')
+    self.model_mistral = os.getenv('MODEL_MISTRAL_SMALL_3_1')
+
+  def make_client(self):
+    return OpenAI(
+      base_url=self.API_URL,
+      api_key=self.API_KEY,
+    )
+
+  @staticmethod
+  def get_messages(role, msg):
+    # logger.info(f"\nrequests_limit к OpenAI.: {requests_limit}\n")
+    if role == 'hryn':
+      messages = [
+        {"role": "system", "content": hryun_promt},
+        {"role": "user", "content": msg}
+      ]
+    elif role == 'summary':
+      # print(f"\n\nROLE:: {role}\n PROMT:: {summary_prompt}\n CONTENT:: {msg}")
+      messages = [
+        {"role": "system", "content": summary_prompt},
+        {"role": "user", "content": msg}
+      ]
+    else:
+      messages = [
+        {"role": "system", "content": "a smart helpful assistant"},
+        {"role": "user", "content": msg}
+      ]
+    return messages
+
+  def ask(self, msg, role='hryn', context=None):
+    # logger.info(f"Отправка запроса к OpenAI. Текст: {msg}, Роль: {role}")
+    client = self.make_client()
+
+    new_message = LLM.get_messages(role, msg)
+
+    # Формируем список сообщений с историей
+    messages = context if context else []  # Берём историю, если есть
+
+    # Добавляем текущее сообщение в контекст
+    messages.extend(new_message)
+
+    headers = {
+      "HTTP-Referer": "<YOUR_SITE_URL>",
+      "X-Title": "<YOUR_SITE_NAME>",
+    }
+
+    # models = [self.model_gemini_pro_2_5, self.model_gemma]
+    # models = [self.model_gemini_pro_2_5]
+    models = [self.model_gemma]
+    # models = [self.model_mistral]
+    # models = [self.model_deepseek]
+    # models = [self.model_qwen]
+    max_retries = 3
+
+    for model in models:
+      for attempt in range(1, max_retries + 1):
+        try:
+          logger.info(f"\nСообщения, отправляемые в запрос: {messages}\n")
+
+          completion = client.chat.completions.create(
+            extra_headers=headers,
+            extra_body={},
+            model=model,
+            messages=messages
+          )
+          logger.info(f"Ответ от OpenAI ({model}): {completion}")
+
+          response = completion.choices[0].message.content
+
+          if response:
+            return response
+        except Exception as e:
+          logger.error(f"Ошибка при запросе к {model} (попытка {attempt}): {e}", exc_info=False)
+          if attempt < max_retries:
+            time.sleep(11)
+
+    return "Мозги не работают, спроси позже"  # Если все попытки провалились
+
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\utils\history_listing.py ---
+# history_listing.py
+import asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_db, Message, User, Chat
+
+
+async def get_messages_with_users(tg_chat_id: int, limit: int):
+    async with get_db() as session:  # session: AsyncSession
+        stmt = (
+            select(Message, User)
+            .join(User, Message.user_id == User.id)
+            .join(Chat, Message.chat_id == Chat.id)  # Явно указываем связь с Chat
+            .where(Chat.tg_chat_id == tg_chat_id)  # Фильтр по Telegram ID чата
+            .order_by(Message.timestamp.desc())
+            .limit(limit)
+        )
+
+        result = await session.execute(stmt)
+        return result.all()
+
+
+async def get_history_listing(tg_chat_id: int, limit: int = 100):
+    messages = await get_messages_with_users(tg_chat_id, limit)
+    if messages:
+        summary = []
+        async with get_db() as session:
+            for chat_message, user in messages:
+                username = user.tg_username or "Неизвестный"
+                # Обрабатываем разные типы сообщений
+                if chat_message.type == "text" or (
+                        chat_message.content and chat_message.content not in ["[photo]", "[sticker]", "[video]",
+                                                                              "[voice]", "[audio]", "[document]",
+                                                                              "[animation]", "[video_note]", "[dice]",
+                                                                              "[poll]"]):
+                    message_desc = f"сказал: \"{chat_message.content}\""
+                else:
+                    type_map = {
+                        "photo": "отправил фото",
+                        "sticker": "отправил стикер",
+                        "video": "отправил видео",
+                        "voice": "отправил голосовое сообщение",
+                        "audio": "отправил аудио",
+                        "document": "отправил документ",
+                        "animation": "отправил анимацию",
+                        "video_note": "отправил видео-кружок",
+                        "dice": "бросил кубик",
+                        "poll": "создал опрос"
+                    }
+                    message_desc = type_map.get(chat_message.type, f"отправил что-то странное ({chat_message.type})")
+
+                # Проверяем, является ли сообщение реплаем
+                if chat_message.reply_to_tg_message_id:
+                    result = await session.execute(
+                        select(Message).filter_by(
+                            tg_message_id=chat_message.reply_to_tg_message_id,
+                            chat_id=chat_message.chat_id
+                        )
+                    )
+                    replied_message = result.scalar_one_or_none()
+
+                    if replied_message:
+                        result = await session.execute(
+                            select(User).filter_by(id=replied_message.user_id)
+                        )
+                        replied_user = result.scalar_one_or_none()
+                        replied_username = replied_user.tg_username if replied_user and replied_user.tg_username else "Неизвестный"
+
+                        # Обрабатываем тип replied-сообщения
+                        if replied_message.type == "text" or (
+                                replied_message.content and replied_message.content not in ["[photo]", "[sticker]",
+                                                                                            "[video]", "[voice]",
+                                                                                            "[audio]", "[document]",
+                                                                                            "[animation]",
+                                                                                            "[video_note]", "[dice]",
+                                                                                            "[poll]"]):
+                            # Проверяем content на None перед использованием len()
+                            short_text = replied_message.content[:80] + "..." if replied_message.content and len(
+                                replied_message.content) > 80 else replied_message.content or "[без текста]"
+                            reply_desc = f"сообщение \"{short_text}\""
+                        else:
+                            reply_desc = type_map.get(replied_message.type, f"что-то странное ({replied_message.type})")
+
+                        summary.append(
+                            f"{chat_message.timestamp} юзер '{username}' ответил \"{chat_message.content}\" на {reply_desc} от юзера '{replied_username}'"
+                        )
+                    else:
+                        print("⚠️ Ошибка: Не найдено сообщение, на которое идет ответ!")
+                        summary.append(
+                            f"{chat_message.timestamp} юзер '{username}' ответил \"{chat_message.content}\" на неизвестное сообщение"
+                        )
+                else:
+                    summary.append(
+                        f"{chat_message.timestamp} юзер '{username}' {message_desc}"
+                    )
+            summary.reverse()
+            return "\n".join(summary)
+    else:
+        return "В этом чате пока нет сообщений для отчета."
+
+
+async def main():
+    content = await get_history_listing(tg_chat_id=-1002619036043, limit=16)
+    print(content)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\utils\message_thread.py ---
+# utils\message_thread.py
+import logging
+import random
+import yaml
+import os
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
+from sqlalchemy import select, insert, delete, exists
+from sqlalchemy.exc import SQLAlchemyError
+
+from database import get_db, Message, User, Chat, UsedAnekdot
+from config import load_config
+
+config = load_config()
+ANEKDOTS_FILE = config.ANEKDOTS_FILE
+
+# async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id, **kwargs):
+#     """ Строит цепочку сообщений в заданном чате между юзером и ботом по реплаям по признаку если bot_addressed=True (значит сообщение адресовалось или принадлежит боту) """
+#     async with db.begin():
+#         result = await db.execute(
+#             select(User).filter_by(tg_user_id=tg_user_id ... )
+#         )
+#     допиши функцию чтобы возвращала словарь для создания контекста для сообщения для OpenAI
+
+
+async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id: int, **kwargs):
+    """ Строит цепочку сообщений в заданном чате между юзером и ботом по реплаям и по признаку bot_addressed=True
+        (значит сообщение адресовано или принадлежит боту).
+        Возвращает словарь для создания контекста для OpenAI.
+    """
+    async with (db.begin()):
+        # Находим пользователя и чат
+        user_result = await db.execute(
+            select(User).filter_by(tg_user_id=tg_user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user:
+            return []
+            # return {"error": "Пользователь не найден"}
+
+        chat_result = await db.execute(
+            select(Chat).filter_by(tg_chat_id=tg_chat_id)
+        )
+        chat = chat_result.scalar_one_or_none()
+        if not chat:
+            # return {"error": "Чат не найден"}
+            return []
+
+        # Получаем все сообщения в чате с bot_addressed=True, связанные с пользователем или ботом
+        stmt = (
+            select(Message, User)
+            .join(User, Message.user_id == User.id)
+            .where(
+                Message.chat_id == chat.id,
+                Message.bot_addressed == True
+            )
+            .order_by(Message.timestamp.asc())
+        )
+        result = await db.execute(stmt)
+        messages = result.all()
+
+        if not messages:
+            # return {"messages": [], "context": "Нет сообщений в цепочке"}
+            return []
+
+        # Строим цепочку сообщений на основе reply_to_tg_message_id
+        message_dict = {msg.tg_message_id: (msg, usr) for msg, usr in messages}
+        thread = []
+        seen_messages = set()
+
+        def build_thread(current_msg_id):
+            if current_msg_id in seen_messages:
+                return  # Предотвращаем зацикливание
+            if current_msg_id not in message_dict:
+                return  # Сообщение не найдено или не входит в bot_addressed
+
+            msg, usr = message_dict[current_msg_id]
+            seen_messages.add(current_msg_id)
+            thread_entry = {
+                "user": usr.tg_username or usr.tg_first_name,
+                "content": msg.content or f"[{msg.type}]"
+            }
+
+            # Если есть сообщение, на которое это ответ
+            if msg.reply_to_tg_message_id:
+                build_thread(msg.reply_to_tg_message_id)
+                thread.append(thread_entry)
+            else:
+                thread.append(thread_entry)
+
+        # Начинаем с последнего сообщения пользователя, если указано конкретное сообщение
+        start_message_id = kwargs.get("start_tg_message_id")
+        if start_message_id and start_message_id in message_dict:
+            build_thread(start_message_id)
+        else:
+            # Иначе берем все сообщения и строим полную цепочку
+            for msg_id in message_dict:
+                if msg_id not in seen_messages:
+                    build_thread(msg_id)
+
+        # Формируем текстовый контекст для OpenAI
+        context = []
+        for entry in thread:
+            strip = {}
+            role = "assistant" if entry["user"] == "hryun2_bot" else "user"
+            strip["role"] = role
+            strip["content"] = entry['content']
+            context.append(strip)
+        return context
+
+
+# Тестовая функция для запуска get_message_thread
+async def main():
+    async with get_db() as db:
+        thread = await get_message_thread(db=db, tg_user_id=1585006634, tg_chat_id=-1002619036043)
+        print("Результат get_message_thread:")
+        print(thread)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\utils\services.py ---
+# utils\services.py
+import logging
+import random
+import yaml
+import os
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
+from sqlalchemy import select, insert, delete, exists
+from sqlalchemy.exc import SQLAlchemyError
+
+from database import get_db, Message, User, Chat, UsedAnekdot
+from config import load_config
+
+config = load_config()
+ANEKDOTS_FILE = config.ANEKDOTS_FILE
+
+
+async def get_or_create_user(db: AsyncSession, tg_user_id: int, **kwargs):
+    async with db.begin():
+        result = await db.execute(
+            select(User).filter_by(tg_user_id=tg_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            user = User(tg_user_id=tg_user_id, **kwargs)
+            db.add(user)
+            await db.commit()
+        return user
+
+
+async def get_or_create_chat(db: AsyncSession, tg_chat_id: int, title=None):
+    async with db.begin():
+        result = await db.execute(
+            select(Chat).filter_by(tg_chat_id=tg_chat_id)
+        )
+        chat = result.scalar_one_or_none()
+        if not chat:
+            chat = Chat(tg_chat_id=tg_chat_id, title=title)
+            db.add(chat)
+            await db.commit()
+        return chat
+
+
+async def save_message(message, bot_addressed=False, type="None type"):
+    tg_chat_id = message.chat.id
+    tg_user_id = message.from_user.id
+    tg_username = message.from_user.username or ""
+    tg_first_name = message.from_user.first_name  # Имя пользователя
+    tg_last_name = message.from_user.last_name or ""  # Фамилия (может быть пустой)
+    chat_title = message.chat.title if message.chat.title else f"Личный чат с {tg_first_name}"
+    tg_message_id = message.message_id
+    message_content = message.text if message.text else None
+    type = type
+    reply_to_tg_message_id = message.reply_to_message.message_id if message.reply_to_message else None
+
+    try:
+        async with get_db() as db:
+            # Получаем или создаем чат
+            chat = await get_or_create_chat(db, tg_chat_id, title=chat_title)
+
+            # Получаем или создаем пользователя
+            user = await get_or_create_user(db, tg_user_id, tg_username=tg_username, tg_first_name=tg_first_name,
+                                            tg_last_name=tg_last_name)
+
+            # Если сообщение является реплаем, ищем его в БД
+            reply_to_message = None
+            if reply_to_tg_message_id:
+                result = await db.execute(
+                    select(Message).filter_by(tg_message_id=reply_to_tg_message_id, chat_id=chat.id)
+                )
+                reply_to_message = result.scalar_one_or_none()
+
+            # Сохраняем сообщение
+            new_message = Message(
+                tg_message_id=tg_message_id,
+                chat_id=chat.id,
+                user_id=user.id,
+                content=message_content,
+                bot_addressed=bot_addressed,
+                type=type,
+                reply_to_tg_message_id=reply_to_message.tg_message_id if reply_to_message else None
+            )
+            db.add(new_message)
+            await db.commit()
+
+    except Exception as e:
+        logging.error(f"Ошибка при сохранении сообщения: {e}", exc_info=True)
+        await db.rollback()  # Откат изменений при ошибке
+
+
+async def get_anekdot():
+    # Загружаем анекдоты из файла
+    with open(ANEKDOTS_FILE, "r", encoding="utf-8") as f:
+        anekdots = yaml.safe_load(f)
+    all_keys = list(anekdots.keys())
+
+    async with get_db() as db:
+        try:
+            # Получаем использованные ключи из таблицы UsedAnekdot
+            result = await db.execute(select(UsedAnekdot.anekdot_key))
+            used_keys = [row[0] for row in result.fetchall()]
+
+            # Если все анекдоты использованы — очищаем таблицу
+            if len(used_keys) >= len(all_keys):
+                await db.execute(delete(UsedAnekdot))
+                await db.commit()
+                used_keys = []
+
+            # Находим доступные ключи и выбираем случайный
+            available_keys = list(set(all_keys) - set(used_keys))
+            if not available_keys:
+                raise ValueError("Нет доступных анекдотов")
+
+            random_key = random.choice(available_keys)
+
+            # Добавляем использованный ключ в таблицу
+            stmt = insert(UsedAnekdot).values(anekdot_key=random_key)
+            await db.execute(stmt)
+            await db.commit()
+
+            return f"Ане́кдот №{random_key}:\n\n{anekdots[random_key]}"
+
+        except SQLAlchemyError as e:
+            logging.error(f"Ошибка при работе с базой данных: {e}", exc_info=True)
+            await db.rollback()
+        except Exception as e:
+            logging.error(f"Ошибка при получении анекдота: {e}", exc_info=True)
+
+
+
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\utils\__init__.py ---
+
+----------------------------------------
+

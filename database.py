@@ -1,14 +1,39 @@
 # database.py
 import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Boolean
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
+from contextlib import asynccontextmanager
 
+from config import load_config
+
+config = load_config()
 
 # Создаем подключение к SQLite
-DB_PATH = "db.sqlite3"
-engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
-SessionLocal = sessionmaker(bind=engine)
+file_path = config.DB_FILE_PATH
+DATABASE_URL = f"sqlite+aiosqlite:///{file_path}"
+
+# Создаем таблицы в базе данных
+async def init_db():
+    if not os.path.exists(file_path):
+        print(f"База данных {file_path} не найдена. Создаем новую...")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("База данных успешно создана.")
+    else:
+        print(f"База данных {file_path} уже существует.")
+
+
+# Асинхронный контекстный менеджер для сессий
+@asynccontextmanager
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
+engine = create_async_engine(DATABASE_URL, echo=False)
+AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 Base = declarative_base()
 
@@ -28,10 +53,11 @@ class Message(Base):
     tg_message_id = Column(Integer, nullable=False)
     chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    content = Column(String, nullable=False)
+    content = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     reply_to_tg_message_id = Column(Integer, ForeignKey("messages.tg_message_id"), nullable=True)
     bot_addressed = Column(Boolean, default=False, nullable=False)
+    type = Column(String, nullable=False)
 
     # Связи
     chat = relationship("Chat", back_populates="messages")
@@ -67,20 +93,7 @@ class Chat(Base):
     messages = relationship("Message", back_populates="chat")
 
 
-# Создаем таблицы в базе данных
-def init_db():
-    if not os.path.exists(DB_PATH):
-        print(f"База данных {DB_PATH} не найдена. Создаем новую...")
-        Base.metadata.create_all(engine)
-        print("База данных успешно создана.")
-    else:
-        print(f"База данных {DB_PATH} уже существует.")
+class UsedAnekdot(Base):
+    __tablename__ = "used_anekdots"
+    anekdot_key = Column(String, primary_key=True, index=True)
 
-
-# Функция для получения сессии
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
