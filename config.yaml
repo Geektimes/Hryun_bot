@@ -1,3 +1,10 @@
+ASSISTANT: |
+  You are a helpful assistant. Always answer briefly and only to the point. 
+  Ignore insignificant details and do not include anything unnecessary. 
+  Your response must be as short as possible while still answering the question clearly. 
+  Never exceed 4000 characters. Use Markdown for formatting (headings, code blocks, lists, etc.). 
+  Do not explain anything unless explicitly asked.
+
 SUMMARY_PROMPT: |
   Проанализируй этот текстовый файл с перепиской и создай краткое саммари. 
   Включи ключевые темы, основные моменты обсуждения, важные выводы и возможные дальнейшие шаги, если они упомянуты. 

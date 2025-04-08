@@ -5,30 +5,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b103521a-14d1-4b1f-8176-7617adeb157e" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/handlers/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/handlers/basic_handlers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middlewares/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middlewares/db.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/message_thread.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middlewares/rate_limit.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/LLM.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/AI.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/anec.pdf" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/anekdots.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/anekdots.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/balance_check.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/database.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/history_listing.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/history_listing.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/make_bd.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/message structure.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/parser.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/parser.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/services.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/services.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/temp.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/хрюн.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/handlers/basic_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/basic_handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middlewares/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/middlewares/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/output.txt" beforeDir="false" afterPath="$PROJECT_DIR$/output.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/AI.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/AI.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/parser.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,27 +44,27 @@
     <option name="sortByType" value="true" />
     <option name="sortKey" value="BY_TYPE" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.balance_check.executor": "Run",
-    "Python.bot.executor": "Run",
-    "Python.database.executor": "Run",
-    "Python.history_listing (1).executor": "Run",
-    "Python.history_listing.executor": "Run",
-    "Python.make_bd.executor": "Run",
-    "Python.message_thread.executor": "Run",
-    "Python.parser.executor": "Run",
-    "Python.services (1).executor": "Run",
-    "Python.services.executor": "Run",
-    "Python.summary.executor": "Run",
-    "Python.temp.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "dev",
-    "last_opened_file_path": "D:/Projects/Hryun_bot",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.balance_check.executor&quot;: &quot;Run&quot;,
+    &quot;Python.bot.executor&quot;: &quot;Run&quot;,
+    &quot;Python.database.executor&quot;: &quot;Run&quot;,
+    &quot;Python.history_listing (1).executor&quot;: &quot;Run&quot;,
+    &quot;Python.history_listing.executor&quot;: &quot;Run&quot;,
+    &quot;Python.make_bd.executor&quot;: &quot;Run&quot;,
+    &quot;Python.message_thread.executor&quot;: &quot;Run&quot;,
+    &quot;Python.parser.executor&quot;: &quot;Run&quot;,
+    &quot;Python.services (1).executor&quot;: &quot;Run&quot;,
+    &quot;Python.services.executor&quot;: &quot;Run&quot;,
+    &quot;Python.summary.executor&quot;: &quot;Run&quot;,
+    &quot;Python.temp.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;dev&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/Projects/Hryun_bot&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="D:\Projects\Hryun_bot\utils" />

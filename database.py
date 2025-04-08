@@ -11,7 +11,7 @@ from config import load_config
 config = load_config()
 
 # Создаем подключение к SQLite
-file_path = config.DB_FILE_PATH
+file_path = config.DB_PATH
 DATABASE_URL = f"sqlite+aiosqlite:///{file_path}"
 
 # Создаем таблицы в базе данных

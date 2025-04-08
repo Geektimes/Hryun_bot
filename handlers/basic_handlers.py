@@ -21,31 +21,20 @@ llm = LLM()
 
 router = Router()
 
-# Инициализация colorama
-init(autoreset=True)  # autoreset=True автоматически сбрасывает цвет после каждого вывода
-logging.basicConfig(level=logging.INFO)
 
 @router.message(CommandStart())
-async def start_handler(message: types.Message, db: Session):
-    # Сохраняем пользователя
-    user = db.query(User).filter_by(tg_user_id=message.from_user.id).first()
-    if not user:
-        user = User(
-            tg_user_id=message.from_user.id,
-            tg_username=message.from_user.username,
-            tg_first_name=message.from_user.first_name,
-            tg_last_name=message.from_user.last_name,
-            is_bot=message.from_user.is_bot
-        )
-        db.add(user)
-        db.commit()
+async def start_handler(message: types.Message):
+    logging.info(f"Команда /start от пользователя {message.from_user.id} в чате {message.chat.id}")
 
-    await message.answer(config.GREETING, parse_mode='HTML')
+    # Сохраняем сообщение, при этом явно указываем, что бот был адресован
+    await save_message(message, bot_addressed=True)
+
+    await message.answer(config.GREETING, parse_mode='Markdown')
 
 
 @router.message(Command("help"))
 async def help_handler(message: types.Message):
-    await message.answer("Доступные команды:\n/start — начать\n/help — помощь")
+    await message.answer("Доступные команды:\n/start — начать\n/help — помощь \nНаписать разработчику - @WEB3_0_master")
 
 
 @router.message(lambda msg: msg.text and msg.text.strip().lower() == "хрюн анекдот")
@@ -73,8 +62,11 @@ async def private_chat_handler(message: Message):
 # Обработка "отчет N"
 @router.message(lambda msg: msg.text and msg.text.lower().startswith("отчет"))
 async def report_handler(message: Message):
-    match = re.match(r'^отчет\s+(\d+)$', message.text.lower())
-    limit = int(match.group(1)) if match else 100
+    match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
+    if match:
+        limit = min(int(match.group(1)), 200)
+    else:
+        limit = 100
     history_listing = await get_history_listing(message.chat.id, limit=limit)
 
     logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")

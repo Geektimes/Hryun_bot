@@ -3,26 +3,60 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from handlers import register_handlers
-
-# from config import config, GREETING, BOT_USERNAME, TOKEN
 from config import load_config
 from database import init_db
 from middlewares.db import DBSessionMiddleware
+from middlewares.rate_limit import RateLimitMiddleware
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
+
+# Настройка логирования с ротацией
+log_dir = "logs"
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+log_file = os.path.join(log_dir, "bot.log")
+log_format = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+
+# Создаём RotatingFileHandler: максимум 5 MB на файл, до 5 резервных копий
+log_handler = RotatingFileHandler(
+    log_file,
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=5,             # До 5 файлов ротации (bot.log.1, bot.log.2 и т.д.)
+    encoding="utf-8",
+    delay=False                # Немедленная запись
+)
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format=log_format,
+    handlers=[
+        log_handler,              # Ротация логов в файл
+        logging.StreamHandler()   # Вывод в консоль
+    ]
+)
+logger = logging.getLogger(__name__)
 
 config = load_config()
-
-# session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
-# bot = Bot(TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
 bot = Bot(config.TOKEN)
 dp = Dispatcher(unfiltered=True)
+# session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
+# bot = Bot(config.TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
 
 
 async def main():
+    logger.info("Запуск бота...")
     await init_db()
+
+    # Регистрируем middlewares
     dp.update.middleware(DBSessionMiddleware())
+    dp.update.middleware(RateLimitMiddleware(limit=1, period=60))  # 1 запрос в минуту
+
     register_handlers(dp)
     await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Бот успешно запущен, начинаем polling")
     await dp.start_polling(bot)
 
 
@@ -38,32 +72,39 @@ from dataclasses import dataclass
 import yaml
 from dotenv import load_dotenv
 
-root_path = "D:\\Projects\\Hryun_bot"
-file_name = "config.yaml"
-file_path = os.path.join(root_path, file_name)
-
-with open(file_path, "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
-
 load_dotenv()
+
+with open("config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
 
 @dataclass
 class Config:
+    API_KEY: str = os.getenv('API_KEY')
+    API_URL: str = os.getenv('API_URL')
     TOKEN: str = os.getenv('BOT_TOKEN')
     DB_NAME = os.getenv('DB_NAME')
-    ROOT_PATH = os.getenv('ROOT_PATH')
-    DB_FILE_PATH = os.path.join(ROOT_PATH, DB_NAME)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DB_PATH = os.path.join(BASE_DIR, DB_NAME)
     BOT_USERNAME: str = os.getenv('BOT_USERNAME')
-    BOT_NAME: str = "Хрюн",
-    BOT_LAST_NAME: str = "Моржов"
-    BOT_TG_ID: int = 7858823954
+    BOT_NAME: str = os.getenv('BOT_NAME')
+    BOT_LAST_NAME: str = os.getenv('BOT_LAST_NAME')
+    BOT_TG_ID: int = os.getenv('BOT_TG_ID')
+    SRC_PATH: str = os.path.join(BASE_DIR, "source")
+    ANEKDOTS_FILE: str = os.path.join(BASE_DIR, "source", "anekdots.yaml")
     GREETING: str = config["GREETING"]
-    source_path: str = os.path.join(ROOT_PATH, "source")
-    ANEKDOTS_FILE: str = os.path.join(ROOT_PATH, "source", "anekdots.yaml")
+    SUMMARY_PROMPT = config["SUMMARY_PROMPT"]
+    HRYUN_PROMPT = config["HRYUN_PROMPT"]
+
+    MODEL_GEMINI_PRO_2_5 = "google/gemini-2.5-pro-exp-03-25:free"
+    MODEL_DEEPSEEK_V3 = "deepseek/deepseek-v3-base:free"
+    MODEL_QWEN_2_5 = "qwen/qwen2.5-vl-32b-instruct:free"
+    MODEL_GEMMA_3_27B = "google/gemma-3-27b-it:free"
+    MODEL_MISTRAL_SMALL_3_1 = "mistralai/mistral-small-3.1-24b-instruct:free"
 
 
 def load_config():
     return Config()
+
 
 ----------------------------------------
 
@@ -81,7 +122,7 @@ from config import load_config
 config = load_config()
 
 # Создаем подключение к SQLite
-file_path = config.DB_FILE_PATH
+file_path = config.DB_PATH
 DATABASE_URL = f"sqlite+aiosqlite:///{file_path}"
 
 # Создаем таблицы в базе данных
@@ -200,31 +241,20 @@ llm = LLM()
 
 router = Router()
 
-# Инициализация colorama
-init(autoreset=True)  # autoreset=True автоматически сбрасывает цвет после каждого вывода
-logging.basicConfig(level=logging.INFO)
 
 @router.message(CommandStart())
-async def start_handler(message: types.Message, db: Session):
-    # Сохраняем пользователя
-    user = db.query(User).filter_by(tg_user_id=message.from_user.id).first()
-    if not user:
-        user = User(
-            tg_user_id=message.from_user.id,
-            tg_username=message.from_user.username,
-            tg_first_name=message.from_user.first_name,
-            tg_last_name=message.from_user.last_name,
-            is_bot=message.from_user.is_bot
-        )
-        db.add(user)
-        db.commit()
+async def start_handler(message: types.Message):
+    logging.info(f"Команда /start от пользователя {message.from_user.id} в чате {message.chat.id}")
 
-    await message.answer(config.GREETING, parse_mode='HTML')
+    # Сохраняем сообщение, при этом явно указываем, что бот был адресован
+    await save_message(message, bot_addressed=True)
+
+    await message.answer(config.GREETING, parse_mode='Markdown')
 
 
 @router.message(Command("help"))
 async def help_handler(message: types.Message):
-    await message.answer("Доступные команды:\n/start — начать\n/help — помощь")
+    await message.answer("Доступные команды:\n/start — начать\n/help — помощь \nНаписать разработчику - @WEB3_0_master")
 
 
 @router.message(lambda msg: msg.text and msg.text.strip().lower() == "хрюн анекдот")
@@ -252,8 +282,11 @@ async def private_chat_handler(message: Message):
 # Обработка "отчет N"
 @router.message(lambda msg: msg.text and msg.text.lower().startswith("отчет"))
 async def report_handler(message: Message):
-    match = re.match(r'^отчет\s+(\d+)$', message.text.lower())
-    limit = int(match.group(1)) if match else 100
+    match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
+    if match:
+        limit = min(int(match.group(1)), 200)
+    else:
+        limit = 100
     history_listing = await get_history_listing(message.chat.id, limit=limit)
 
     logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
@@ -364,40 +397,90 @@ class DBSessionMiddleware(BaseMiddleware):
 
 ----------------------------------------
 
---- D:\Projects\Hryun_bot\middlewares\__init__.py ---
+--- D:\Projects\Hryun_bot\middlewares\rate_limit.py ---
+# middlewares/rate_limit.py
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject
+from typing import Callable, Dict, Any, Awaitable
+from datetime import datetime, timedelta
+import asyncio
 
+class RateLimitMiddleware(BaseMiddleware):
+    def __init__(self, limit: int = 1, period: int = 60):
+        """
+        :param limit: Максимальное количество запросов за период
+        :param period: Период в секундах
+        """
+        self.limit = limit
+        self.period = period
+        self.user_requests: Dict[int, list] = {}  # Хранит временные метки запросов для каждого пользователя
+        super().__init__()
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        # Получаем ID пользователя из события
+        user_id = event.from_user.id if hasattr(event, "from_user") else None
+        if not user_id:
+            return await handler(event, data)  # Пропускаем, если нет user_id
+
+        current_time = datetime.now()
+
+        # Очищаем старые записи
+        if user_id in self.user_requests:
+            self.user_requests[user_id] = [
+                timestamp for timestamp in self.user_requests[user_id]
+                if current_time - timestamp < timedelta(seconds=self.period)
+            ]
+        else:
+            self.user_requests[user_id] = []
+
+        # Проверяем лимит
+        if len(self.user_requests[user_id]) >= self.limit:
+            await event.answer(
+                f"Слишком много запросов! Подождите {self.period} секунд перед следующим запросом."
+            )
+            return None
+
+        # Добавляем текущий запрос
+        self.user_requests[user_id].append(current_time)
+
+        # Передаем управление следующему обработчику
+        return await handler(event, data)
+----------------------------------------
+
+--- D:\Projects\Hryun_bot\middlewares\__init__.py ---
+# middlewares/__init__.py
+from .db import DBSessionMiddleware
+from .rate_limit import RateLimitMiddleware
 ----------------------------------------
 
 --- D:\Projects\Hryun_bot\utils\AI.py ---
 # AI.py
 import os
 from openai import OpenAI
-import logging
 import time
-import yaml
+import logging
 
-from config import config
+from config import load_config
 
+config = load_config()
 
-requests_limit = 199
-
-summary_prompt = config["SUMMARY_PROMPT"]
-hryun_promt = config["HRYUN_PROMPT"]
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
 
 
 class LLM:
   def __init__(self):
-    self.API_KEY = os.getenv('API_KEY')
-    self.API_URL = os.getenv('API_URL')
-    self.model_gemini_pro_2_5 = os.getenv('MODEL_GEMINI_PRO_2_5')
-    self.model_qwen = os.getenv('MODEL_QWEN_2_5')
-    self.model_deepseek = os.getenv('MODEL_DEEPSEEK_V3')
-    self.model_gemma = os.getenv('MODEL_GEMMA_3_27B')
-    self.model_mistral = os.getenv('MODEL_MISTRAL_SMALL_3_1')
+    self.API_KEY = config.API_KEY
+    self.API_URL = config.API_URL
+    self.model_gemini_pro_2_5 = config.MODEL_GEMINI_PRO_2_5
+    self.model_qwen = config.MODEL_QWEN_2_5
+    self.model_deepseek = config.MODEL_DEEPSEEK_V3
+    self.model_gemma = config.MODEL_GEMMA_3_27B
+    self.model_mistral = config.MODEL_MISTRAL_SMALL_3_1
 
   def make_client(self):
     return OpenAI(
@@ -410,18 +493,18 @@ class LLM:
     # logger.info(f"\nrequests_limit к OpenAI.: {requests_limit}\n")
     if role == 'hryn':
       messages = [
-        {"role": "system", "content": hryun_promt},
+        {"role": "system", "content": config.HRYUN_PROMPT},
         {"role": "user", "content": msg}
       ]
     elif role == 'summary':
       # print(f"\n\nROLE:: {role}\n PROMT:: {summary_prompt}\n CONTENT:: {msg}")
       messages = [
-        {"role": "system", "content": summary_prompt},
+        {"role": "system", "content": config.SUMMARY_PROMPT},
         {"role": "user", "content": msg}
       ]
     else:
       messages = [
-        {"role": "system", "content": "a smart helpful assistant"},
+        {"role": "system", "content": config.ASSISTANT},
         {"role": "user", "content": msg}
       ]
     return messages
@@ -437,7 +520,7 @@ class LLM:
 
     # Добавляем текущее сообщение в контекст
     messages.extend(new_message)
-
+    # print(f"\nMESSAGA:: {messages}\n")
     headers = {
       "HTTP-Referer": "<YOUR_SITE_URL>",
       "X-Title": "<YOUR_SITE_NAME>",
@@ -465,6 +548,7 @@ class LLM:
           logger.info(f"Ответ от OpenAI ({model}): {completion}")
 
           response = completion.choices[0].message.content
+          response = response[:4000] if len(response) > 4000 else response
 
           if response:
             return response
@@ -608,16 +692,8 @@ from config import load_config
 config = load_config()
 ANEKDOTS_FILE = config.ANEKDOTS_FILE
 
-# async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id, **kwargs):
-#     """ Строит цепочку сообщений в заданном чате между юзером и ботом по реплаям по признаку если bot_addressed=True (значит сообщение адресовалось или принадлежит боту) """
-#     async with db.begin():
-#         result = await db.execute(
-#             select(User).filter_by(tg_user_id=tg_user_id ... )
-#         )
-#     допиши функцию чтобы возвращала словарь для создания контекста для сообщения для OpenAI
 
-
-async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id: int, **kwargs):
+async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id: int, limit: int=20, **kwargs):
     """ Строит цепочку сообщений в заданном чате между юзером и ботом по реплаям и по признаку bot_addressed=True
         (значит сообщение адресовано или принадлежит боту).
         Возвращает словарь для создания контекста для OpenAI.
@@ -700,15 +776,17 @@ async def get_message_thread(db: AsyncSession, tg_user_id: int, tg_chat_id: int,
             strip["role"] = role
             strip["content"] = entry['content']
             context.append(strip)
-        return context
+        return context[-limit:]
 
 
 # Тестовая функция для запуска get_message_thread
 async def main():
     async with get_db() as db:
-        thread = await get_message_thread(db=db, tg_user_id=1585006634, tg_chat_id=-1002619036043)
+        thread = await get_message_thread(db=db, tg_user_id=1585006634, tg_chat_id=-1002619036043, limit=5)
+
         print("Результат get_message_thread:")
-        print(thread)
+        for i in thread:
+            print(i)
 
 if __name__ == "__main__":
     import asyncio
