@@ -5,18 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b103521a-14d1-4b1f-8176-7617adeb157e" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/middlewares/rate_limit.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/utils/lock.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env.zip" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/database.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handlers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/handlers/basic_handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/basic_handlers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middlewares/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/middlewares/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middlewares/rate_limit.py" beforeDir="false" afterPath="$PROJECT_DIR$/middlewares/rate_limit.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/output.txt" beforeDir="false" afterPath="$PROJECT_DIR$/output.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/AI.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/AI.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/parser.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/requrements.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/services.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/services.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

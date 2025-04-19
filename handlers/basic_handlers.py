@@ -5,8 +5,8 @@ from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 from sqlalchemy.orm import Session
-
 from colorama import init, Fore
+from functools import wraps
 
 from utils.services import save_message, get_anekdot
 from utils.history_listing import get_history_listing
@@ -14,11 +14,15 @@ from config import load_config
 from utils.AI import LLM
 from database import User, Chat, Message, get_db
 from utils.message_thread import get_message_thread
+from utils.lock import ChatLocks
 
 config = load_config()
 
+# rate_limit = RateLimitMiddleware(limit=1, period=10)
+
 llm = LLM()
 
+rate_limited_router = Router()
 router = Router()
 
 
@@ -29,12 +33,22 @@ async def start_handler(message: types.Message):
     # Сохраняем сообщение, при этом явно указываем, что бот был адресован
     await save_message(message, bot_addressed=True)
 
-    await message.answer(config.GREETING, parse_mode='Markdown')
+    await message.answer(config.GREETING)
 
 
 @router.message(Command("help"))
 async def help_handler(message: types.Message):
     await message.answer("Доступные команды:\n/start — начать\n/help — помощь \nНаписать разработчику - @WEB3_0_master")
+
+
+@rate_limited_router.message(Command("anekdot"))
+async def send_anekdot_handler(message: Message):
+    # Сохраняем сообщение пользователя в базу
+    await save_message(message, bot_addressed=True)
+    anekdot = await get_anekdot()
+    if anekdot:  # Если ответ получен
+        bot_message = await message.answer(anekdot)
+        await save_message(bot_message, bot_addressed=True)
 
 
 @router.message(lambda msg: msg.text and msg.text.strip().lower() == "хрюн анекдот")
@@ -59,20 +73,32 @@ async def private_chat_handler(message: Message):
         await save_message(bot_message, bot_addressed=True)
 
 
-# Обработка "отчет N"
 @router.message(lambda msg: msg.text and msg.text.lower().startswith("отчет"))
 async def report_handler(message: Message):
-    match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
-    if match:
-        limit = min(int(match.group(1)), 200)
-    else:
-        limit = 100
-    history_listing = await get_history_listing(message.chat.id, limit=limit)
+    chat_lock = ChatLocks.get_lock(message.chat.id)
 
-    logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
-    bot_text = llm.ask(history_listing, role='summary')
-    if bot_text:
-        await message.answer(bot_text)
+    if chat_lock.locked():
+        # await message.answer("Подождите, предыдущий отчет еще формируется...")
+        return
+
+    async with chat_lock:
+        try:
+            match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
+            if match:
+                limit = min(int(match.group(1)), 200)
+            else:
+                limit = 100
+
+            history_listing = await get_history_listing(message.chat.id, limit=limit)
+
+            logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
+            bot_text = llm.ask(history_listing, role='summary')
+
+            if bot_text:
+                await message.answer(bot_text, reply_to_message_id=message.message_id)
+        except Exception as e:
+            logging.error(f"Ошибка при формировании отчета: {e}")
+            await message.answer("Произошла ошибка при формировании отчета")
 
 
 # Обработка "хрюша ..."

@@ -1,9 +1,7 @@
 --- D:\Projects\Hryun_bot\bot.py ---
-#bot.py
+# bot.py
 import asyncio
 from aiogram import Bot, Dispatcher
-from handlers import register_handlers
-from config import load_config
 from database import init_db
 from middlewares.db import DBSessionMiddleware
 from middlewares.rate_limit import RateLimitMiddleware
@@ -11,39 +9,38 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
+from handlers.basic_handlers import rate_limited_router, router
+from config import load_config
 
-# Настройка логирования с ротацией
+config = load_config()
+
+bot = Bot(config.TOKEN)
+dp = Dispatcher(unfiltered=True)
+
+# Настройка логирования
 log_dir = "logs"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 log_file = os.path.join(log_dir, "bot.log")
 log_format = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 
-# Создаём RotatingFileHandler: максимум 5 MB на файл, до 5 резервных копий
 log_handler = RotatingFileHandler(
     log_file,
-    maxBytes=5 * 1024 * 1024,  # 5 MB
-    backupCount=5,             # До 5 файлов ротации (bot.log.1, bot.log.2 и т.д.)
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
     encoding="utf-8",
-    delay=False                # Немедленная запись
+    delay=False
 )
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format=log_format,
     handlers=[
-        log_handler,              # Ротация логов в файл
-        logging.StreamHandler()   # Вывод в консоль
+        log_handler,
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
-
-config = load_config()
-bot = Bot(config.TOKEN)
-dp = Dispatcher(unfiltered=True)
-# session = AiohttpSession(proxy='http://proxy.server:3128')  # для деплоя на https://www.pythonanywhere.com/
-# bot = Bot(config.TOKEN, session=session)  # для деплоя на https://www.pythonanywhere.com/
 
 
 async def main():
@@ -52,16 +49,19 @@ async def main():
 
     # Регистрируем middlewares
     dp.update.middleware(DBSessionMiddleware())
-    dp.update.middleware(RateLimitMiddleware(limit=1, period=60))  # 1 запрос в минуту
+    rate_limited_router.message.middleware(RateLimitMiddleware(limit=1, period=5))
 
-    register_handlers(dp)
+    # Регистрируем роутеры
+    dp.include_router(rate_limited_router)
+    dp.include_router(router)
+
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Бот успешно запущен, начинаем polling")
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 ----------------------------------------
 
@@ -225,8 +225,8 @@ from aiogram import Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 from sqlalchemy.orm import Session
-
 from colorama import init, Fore
+from functools import wraps
 
 from utils.services import save_message, get_anekdot
 from utils.history_listing import get_history_listing
@@ -234,11 +234,15 @@ from config import load_config
 from utils.AI import LLM
 from database import User, Chat, Message, get_db
 from utils.message_thread import get_message_thread
+from utils.lock import ChatLocks
 
 config = load_config()
 
+# rate_limit = RateLimitMiddleware(limit=1, period=10)
+
 llm = LLM()
 
+rate_limited_router = Router()
 router = Router()
 
 
@@ -249,12 +253,22 @@ async def start_handler(message: types.Message):
     # Сохраняем сообщение, при этом явно указываем, что бот был адресован
     await save_message(message, bot_addressed=True)
 
-    await message.answer(config.GREETING, parse_mode='Markdown')
+    await message.answer(config.GREETING)
 
 
 @router.message(Command("help"))
 async def help_handler(message: types.Message):
     await message.answer("Доступные команды:\n/start — начать\n/help — помощь \nНаписать разработчику - @WEB3_0_master")
+
+
+@rate_limited_router.message(Command("anekdot"))
+async def send_anekdot_handler(message: Message):
+    # Сохраняем сообщение пользователя в базу
+    await save_message(message, bot_addressed=True)
+    anekdot = await get_anekdot()
+    if anekdot:  # Если ответ получен
+        bot_message = await message.answer(anekdot)
+        await save_message(bot_message, bot_addressed=True)
 
 
 @router.message(lambda msg: msg.text and msg.text.strip().lower() == "хрюн анекдот")
@@ -279,20 +293,32 @@ async def private_chat_handler(message: Message):
         await save_message(bot_message, bot_addressed=True)
 
 
-# Обработка "отчет N"
 @router.message(lambda msg: msg.text and msg.text.lower().startswith("отчет"))
 async def report_handler(message: Message):
-    match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
-    if match:
-        limit = min(int(match.group(1)), 200)
-    else:
-        limit = 100
-    history_listing = await get_history_listing(message.chat.id, limit=limit)
+    chat_lock = ChatLocks.get_lock(message.chat.id)
 
-    logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
-    bot_text = llm.ask(history_listing, role='summary')
-    if bot_text:
-        await message.answer(bot_text)
+    if chat_lock.locked():
+        # await message.answer("Подождите, предыдущий отчет еще формируется...")
+        return
+
+    async with chat_lock:
+        try:
+            match = re.match(r'^отчет\s+([1-9][0-9]{0,2})$', message.text.lower())
+            if match:
+                limit = min(int(match.group(1)), 200)
+            else:
+                limit = 100
+
+            history_listing = await get_history_listing(message.chat.id, limit=limit)
+
+            logging.info(f"Отчет для чата {message.chat.id}:\n{history_listing}")
+            bot_text = llm.ask(history_listing, role='summary')
+
+            if bot_text:
+                await message.answer(bot_text, reply_to_message_id=message.message_id)
+        except Exception as e:
+            logging.error(f"Ошибка при формировании отчета: {e}")
+            await message.answer("Произошла ошибка при формировании отчета")
 
 
 # Обработка "хрюша ..."
@@ -368,12 +394,14 @@ async def unknown_message_handler(message: Message):
 ----------------------------------------
 
 --- D:\Projects\Hryun_bot\handlers\__init__.py ---
-#handlers\__init__.py
+# handlers/__init__.py
 from aiogram import Dispatcher
-from . import basic_handlers
+from .basic_handlers import rate_limited_router, router
 
 def register_handlers(dp: Dispatcher):
-    dp.include_router(basic_handlers.router)
+    dp.include_router(rate_limited_router)
+    dp.include_router(router)
+
 
 ----------------------------------------
 
@@ -400,20 +428,18 @@ class DBSessionMiddleware(BaseMiddleware):
 --- D:\Projects\Hryun_bot\middlewares\rate_limit.py ---
 # middlewares/rate_limit.py
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject
+from aiogram.types import TelegramObject, Message
 from typing import Callable, Dict, Any, Awaitable
 from datetime import datetime, timedelta
-import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RateLimitMiddleware(BaseMiddleware):
     def __init__(self, limit: int = 1, period: int = 60):
-        """
-        :param limit: Максимальное количество запросов за период
-        :param period: Период в секундах
-        """
         self.limit = limit
         self.period = period
-        self.user_requests: Dict[int, list] = {}  # Хранит временные метки запросов для каждого пользователя
+        self.user_requests: Dict[int, list] = {}
         super().__init__()
 
     async def __call__(
@@ -422,14 +448,15 @@ class RateLimitMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any]
     ) -> Any:
-        # Получаем ID пользователя из события
-        user_id = event.from_user.id if hasattr(event, "from_user") else None
-        if not user_id:
-            return await handler(event, data)  # Пропускаем, если нет user_id
+        if not isinstance(event, Message):
+            logger.debug("Событие не является сообщением, пропускаем rate limit")
+            return await handler(event, data)
 
+        user_id = event.from_user.id
         current_time = datetime.now()
 
-        # Очищаем старые записи
+        logger.info(f"Проверка rate limit для пользователя {user_id}")
+
         if user_id in self.user_requests:
             self.user_requests[user_id] = [
                 timestamp for timestamp in self.user_requests[user_id]
@@ -438,17 +465,16 @@ class RateLimitMiddleware(BaseMiddleware):
         else:
             self.user_requests[user_id] = []
 
-        # Проверяем лимит
         if len(self.user_requests[user_id]) >= self.limit:
+            logger.info(f"Пользователь {user_id} превысил лимит: {len(self.user_requests[user_id])} запросов")
             await event.answer(
                 f"Слишком много запросов! Подождите {self.period} секунд перед следующим запросом."
             )
             return None
 
-        # Добавляем текущий запрос
         self.user_requests[user_id].append(current_time)
+        logger.info(f"Добавлен запрос для {user_id}. Текущие запросы: {self.user_requests[user_id]}")
 
-        # Передаем управление следующему обработчику
         return await handler(event, data)
 ----------------------------------------
 
@@ -673,6 +699,23 @@ if __name__ == "__main__":
     asyncio.run(main())
 ----------------------------------------
 
+--- D:\Projects\Hryun_bot\utils\lock.py ---
+# utils\lock.py
+from asyncio import Lock
+
+
+class ChatLocks:
+    _locks: dict[int, Lock] = {}
+
+    @classmethod
+    def get_lock(cls, chat_id: int) -> Lock:
+        if chat_id not in cls._locks:
+            cls._locks[chat_id] = Lock()
+        return cls._locks[chat_id]
+
+
+----------------------------------------
+
 --- D:\Projects\Hryun_bot\utils\message_thread.py ---
 # utils\message_thread.py
 import logging
@@ -799,6 +842,12 @@ import logging
 import random
 import yaml
 import os
+import asyncio
+import time
+from functools import wraps
+from aiogram.types import Message
+# from aiogram.exceptions import Throttled
+
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -923,6 +972,7 @@ async def get_anekdot():
             await db.rollback()
         except Exception as e:
             logging.error(f"Ошибка при получении анекдота: {e}", exc_info=True)
+
 
 
 

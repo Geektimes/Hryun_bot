@@ -3,6 +3,12 @@ import logging
 import random
 import yaml
 import os
+import asyncio
+import time
+from functools import wraps
+from aiogram.types import Message
+# from aiogram.exceptions import Throttled
+
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -127,5 +133,6 @@ async def get_anekdot():
             await db.rollback()
         except Exception as e:
             logging.error(f"Ошибка при получении анекдота: {e}", exc_info=True)
+
 
 
